@@ -303,20 +303,30 @@
             throw new Error('Camera permission is required for AR to work');
           }
 
-          loadingText.textContent = 'Initializing AR system...';
+          loadingText.textContent = 'Initializing AR system... (This may take a moment)';
           // Show the scene. The MindAR system will initialize with the scene.
           sceneEl.style.display = 'block';
 
-          // Wait for the MindAR system to be ready (arReady event)
-          await new Promise((resolve, reject) => {
+          // Wait for the MindAR system to be ready (arReady event) with a timeout
+          const AR_READY_TIMEOUT = 15000; // 15 seconds
+          const arReadyPromise = new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+              reject(new Error(`MindAR system took too long to initialize (${AR_READY_TIMEOUT / 1000}s timeout). Check target image source or network.`));
+            }, AR_READY_TIMEOUT);
+
             sceneEl.addEventListener('arReady', () => {
+                clearTimeout(timeoutId); // Clear timeout if arReady fires
                 debug('MindAR system is now ready');
                 resolve();
             }, { once: true });
+            
             sceneEl.addEventListener('arError', (event) => {
+                clearTimeout(timeoutId); // Clear timeout if arError fires
                 reject(new Error('MindAR AR Error: ' + JSON.stringify(event.detail)));
             }, { once: true });
           });
+
+          await arReadyPromise; // Wait for arReady or timeout
 
           loadingText.textContent = 'Starting camera...';
 
