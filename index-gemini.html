@@ -20,7 +20,7 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        min-height: 100vh; /* Ensure body takes full viewport height */
+        min-height: 100vh;
       }
 
       /* Initial Screen */
@@ -37,7 +37,7 @@
         justify-content: center;
         align-items: center;
         text-align: center;
-        z-index: 1002; /* Above other elements */
+        z-index: 1002;
         padding: 20px;
         box-sizing: border-box;
       }
@@ -77,7 +77,7 @@
         text-align: center;
       }
 
-      /* Scan button (formerly start-btn) */
+      /* Scan button */
       .scan-btn {
         background-color: #4CAF50;
         color: white;
@@ -152,6 +152,27 @@
         z-index: 1000;
         display: none;
       }
+
+      /* Stop button */
+      .stop-btn {
+        position: fixed;
+        top: 70px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: #f44336;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        font-size: 14px;
+        border-radius: 5px;
+        cursor: pointer;
+        z-index: 1001;
+        display: none;
+      }
+
+      .stop-btn:hover {
+        background-color: #da190b;
+      }
     </style>
   </head>
   <body>
@@ -175,6 +196,9 @@
       Point camera at target image
     </div>
 
+    <!-- Stop button -->
+    <button id="stopBtn" class="stop-btn">Stop AR</button>
+
     <!-- Debug info -->
     <div id="debugInfo" class="debug-info"></div>
 
@@ -183,7 +207,7 @@
       id="arScene"
       mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false; showStats: false; maxTrack: 1; filterMinCF: 0.0001; filterBeta: 0.001; warmupTolerance: 5; missTolerance: 5"
       color-space="sRGB"
-      renderer="colorManagement: true, physicallyCorrectLights, antialias: true"
+      renderer="colorManagement: true, physicallyCorrectLights: true, antialias: true"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
       embedded
@@ -229,8 +253,9 @@
       // DOM elements
       const sceneEl = document.getElementById('arScene');
       const video = document.querySelector('#vid');
-      const scanBtn = document.getElementById('scanBtn'); // Renamed from startBtn
-      const initialScreen = document.getElementById('initialScreen'); // New element
+      const scanBtn = document.getElementById('scanBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const initialScreen = document.getElementById('initialScreen');
       const messageOverlay = document.getElementById('messageOverlay');
       const loading = document.getElementById('loading');
       const loadingText = document.getElementById('loadingText');
@@ -240,6 +265,7 @@
       let arStarted = false;
       let targetVisible = false;
       let cameraPermissionGranted = false;
+      let arSystem = null;
 
       // Debug function
       function debug(message) {
@@ -288,12 +314,12 @@
         }
       }
 
-      // Start AR function (renamed from startAR for clarity in new flow)
+      // Start AR function
       async function startScanning() {
         try {
           scanBtn.disabled = true;
           scanBtn.textContent = 'Starting...';
-          initialScreen.style.display = 'none'; // Hide initial screen
+          initialScreen.style.display = 'none';
           loading.style.display = 'block';
           loadingText.textContent = 'Preparing AR experience...';
 
@@ -303,64 +329,109 @@
             throw new Error('Camera permission is required for AR to work');
           }
 
-          loadingText.textContent = 'Initializing AR system... (This may take a moment)';
-          // Show the scene. The MindAR system will initialize with the scene.
+          loadingText.textContent = 'Initializing AR system...';
+          
+          // Show the scene
           sceneEl.style.display = 'block';
 
-          // Wait for the MindAR system to be ready (arReady event) with a timeout
-          const AR_READY_TIMEOUT = 15000; // 15 seconds
-          const arReadyPromise = new Promise((resolve, reject) => {
-            const timeoutId = setTimeout(() => {
-              reject(new Error(`MindAR system took too long to initialize (${AR_READY_TIMEOUT / 1000}s timeout). Check target image source or network.`));
-            }, AR_READY_TIMEOUT);
-
-            sceneEl.addEventListener('arReady', () => {
-                clearTimeout(timeoutId); // Clear timeout if arReady fires
-                debug('MindAR system is now ready');
-                resolve();
-            }, { once: true });
-            
-            sceneEl.addEventListener('arError', (event) => {
-                clearTimeout(timeoutId); // Clear timeout if arError fires
-                reject(new Error('MindAR AR Error: ' + JSON.stringify(event.detail)));
-            }, { once: true });
+          // Wait for scene to be fully loaded
+          await new Promise((resolve) => {
+            if (sceneEl.hasLoaded) {
+              resolve();
+            } else {
+              sceneEl.addEventListener('loaded', resolve, { once: true });
+            }
           });
 
-          await arReadyPromise; // Wait for arReady or timeout
+          // Wait for MindAR system to be ready
+          const AR_READY_TIMEOUT = 20000; // 20 seconds
+          const arReadyPromise = new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+              reject(new Error(`MindAR system initialization timeout (${AR_READY_TIMEOUT / 1000}s)`));
+            }, AR_READY_TIMEOUT);
+
+            const onArReady = () => {
+              clearTimeout(timeoutId);
+              debug('MindAR system ready');
+              resolve();
+            };
+
+            const onArError = (event) => {
+              clearTimeout(timeoutId);
+              reject(new Error('MindAR initialization error: ' + JSON.stringify(event.detail)));
+            };
+
+            sceneEl.addEventListener('arReady', onArReady, { once: true });
+            sceneEl.addEventListener('arError', onArError, { once: true });
+          });
+
+          await arReadyPromise;
 
           loadingText.textContent = 'Starting camera...';
 
-          // Now it's safe to get the system and start it
-          const arSystem = sceneEl.systems['mindar-image'];
+          // Get the AR system and start it
+          arSystem = sceneEl.systems['mindar-image'];
           if (!arSystem) {
-            throw new Error('MindAR system not found after arReady event. Unexpected error.');
+            throw new Error('MindAR system not found');
           }
 
-          debug('Starting MindAR system...');
-          await arSystem.start(); // Start the AR system
+          await arSystem.start();
           
           arStarted = true;
           loading.style.display = 'none';
-          scanBtn.style.display = 'none'; // Hide scan button once AR starts
+          stopBtn.style.display = 'block';
           updateMessage('Point your camera at the target image');
 
           debug('AR started successfully');
-          console.log('AR started successfully');
 
         } catch (error) {
           console.error('Error starting AR:', error);
-          debug('Error: ' + error.message);
-
-          loading.style.display = 'none';
-          scanBtn.disabled = false;
-          scanBtn.textContent = 'Scan for AR'; // Reset button text
-          initialScreen.style.display = 'flex'; // Show initial screen again on error
-
-          // Ensure scene is hidden if AR failed to start
-          sceneEl.style.display = 'none';
-
-          updateMessage('Failed to start AR: ' + error.message);
+          handleARError(error);
         }
+      }
+
+      // Stop AR function
+      async function stopAR() {
+        try {
+          if (arSystem && arStarted) {
+            await arSystem.stop();
+            arSystem = null;
+          }
+          
+          pauseVideo();
+          arStarted = false;
+          targetVisible = false;
+          
+          sceneEl.style.display = 'none';
+          stopBtn.style.display = 'none';
+          messageOverlay.style.display = 'none';
+          
+          // Reset and show initial screen
+          scanBtn.disabled = false;
+          scanBtn.textContent = 'Scan for AR';
+          initialScreen.style.display = 'flex';
+          
+          debug('AR stopped');
+          
+        } catch (error) {
+          console.error('Error stopping AR:', error);
+          debug('Error stopping AR: ' + error.message);
+        }
+      }
+
+      // Handle AR errors
+      function handleARError(error) {
+        debug('AR Error: ' + error.message);
+        
+        loading.style.display = 'none';
+        scanBtn.disabled = false;
+        scanBtn.textContent = 'Scan for AR';
+        initialScreen.style.display = 'flex';
+        sceneEl.style.display = 'none';
+        stopBtn.style.display = 'none';
+        
+        updateMessage('AR Error: ' + error.message);
+        hideMessage(5000);
       }
 
       // Play video function
@@ -373,7 +444,8 @@
             hideMessage();
           } catch (error) {
             console.error('Error playing video:', error);
-            updateMessage('Tap to play video (autoplay prevented)');
+            updateMessage('Tap to play video');
+            hideMessage();
           }
         }
       }
@@ -396,7 +468,8 @@
       }
 
       // Event listeners
-      scanBtn.addEventListener('click', startScanning); // Changed from startBtn to scanBtn
+      scanBtn.addEventListener('click', startScanning);
+      stopBtn.addEventListener('click', stopAR);
 
       // Scene events
       sceneEl.addEventListener('loaded', () => {
@@ -405,13 +478,12 @@
       });
 
       sceneEl.addEventListener('arReady', () => {
-        console.log('MindAR AR system component is ready');
+        console.log('MindAR AR system ready');
       });
 
       sceneEl.addEventListener('arError', (event) => {
         console.error('MindAR AR Error:', event.detail);
-        debug('MindAR AR Error: ' + JSON.stringify(event.detail));
-        updateMessage('AR Error occurred. Please refresh and try again.');
+        handleARError(new Error('MindAR runtime error: ' + JSON.stringify(event.detail)));
       });
 
       // Target tracking events
@@ -436,9 +508,6 @@
           updateMessage('Target lost. Point camera at target image.');
           pauseVideo();
         });
-      } else {
-        debug('Error: a-entity[mindar-image-target] not found in the DOM.');
-        console.error('Error: a-entity[mindar-image-target] not found. Check your A-Frame markup.');
       }
 
       // Video events
@@ -447,24 +516,22 @@
         debug('Video ready');
       });
 
-      video.addEventListener('play', () => {
-        console.log('Video playing');
-      });
-
-      video.addEventListener('pause', () => {
-        console.log('Video paused');
-      });
-
       video.addEventListener('error', (e) => {
         console.error('Video error:', e);
         debug('Video error');
-        updateMessage('Video loading error: ' + e.message);
+        updateMessage('Video loading error');
+        hideMessage();
       });
 
       // Click/touch events for interaction
       document.addEventListener('click', (e) => {
-        // Only allow interaction if AR is started and target is visible, and it's not the scan button
-        if (e.target !== scanBtn && arStarted && targetVisible) {
+        // Ignore clicks on buttons
+        if (e.target === scanBtn || e.target === stopBtn) {
+          return;
+        }
+        
+        // Only allow interaction if AR is started and target is visible
+        if (arStarted && targetVisible) {
           if (video.paused) {
             playVideo();
           } else {
@@ -487,12 +554,7 @@
       // Handle beforeunload
       window.addEventListener('beforeunload', () => {
         if (arStarted) {
-          pauseVideo();
-          const arSystem = sceneEl.systems['mindar-image'];
-          if (arSystem && arSystem.stop) {
-            arSystem.stop();
-            debug('MindAR system stopped on unload');
-          }
+          stopAR();
         }
       });
 
