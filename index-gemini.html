@@ -17,6 +17,48 @@
         overflow: hidden;
         font-family: Arial, sans-serif;
         background-color: #000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh; /* Ensure body takes full viewport height */
+      }
+
+      /* Initial Screen */
+      .initial-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #222;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        z-index: 1002; /* Above other elements */
+        padding: 20px;
+        box-sizing: border-box;
+      }
+
+      .initial-screen h1 {
+        font-size: 2em;
+        margin-bottom: 20px;
+      }
+
+      .initial-screen p {
+        font-size: 1.1em;
+        margin-bottom: 30px;
+        max-width: 600px;
+      }
+
+      .initial-screen img {
+        max-width: 80%;
+        height: auto;
+        border: 2px solid #555;
+        border-radius: 8px;
+        margin-bottom: 30px;
       }
 
       /* Message overlay */
@@ -35,12 +77,8 @@
         text-align: center;
       }
 
-      /* Start button */
-      .start-btn {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
+      /* Scan button (formerly start-btn) */
+      .scan-btn {
         background-color: #4CAF50;
         color: white;
         border: none;
@@ -48,17 +86,20 @@
         font-size: 18px;
         border-radius: 5px;
         cursor: pointer;
-        z-index: 1001;
-        display: block;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        transition: background-color 0.3s ease, transform 0.2s ease;
       }
 
-      .start-btn:hover {
+      .scan-btn:hover {
         background-color: #45a049;
+        transform: translateY(-2px);
       }
 
-      .start-btn:disabled {
+      .scan-btn:disabled {
         background-color: #666;
         cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
       }
 
       /* A-Frame scene styling */
@@ -114,8 +155,14 @@
     </style>
   </head>
   <body>
-    <!-- Start button -->
-    <button id="startBtn" class="start-btn">Start AR Experience</button>
+    <!-- Initial Screen with Image Map and Scan Button -->
+    <div id="initialScreen" class="initial-screen">
+      <h1>Web AR Video Experience</h1>
+      <p>To start the Augmented Reality experience, please have the target image ready. When you click "Scan for AR", your camera will activate, and the video will appear when the image is detected.</p>
+      <img src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png" alt="MindAR Target Image Example">
+      <button id="scanBtn" class="scan-btn">Scan for AR</button>
+      <p style="font-size: 0.9em; margin-top: 20px; color: #aaa;">(This is the target image. You can print it or display it on another screen.)</p>
+    </div>
 
     <!-- Loading indicator -->
     <div id="loading" class="loading">
@@ -182,7 +229,8 @@
       // DOM elements
       const sceneEl = document.getElementById('arScene');
       const video = document.querySelector('#vid');
-      const startBtn = document.getElementById('startBtn');
+      const scanBtn = document.getElementById('scanBtn'); // Renamed from startBtn
+      const initialScreen = document.getElementById('initialScreen'); // New element
       const messageOverlay = document.getElementById('messageOverlay');
       const loading = document.getElementById('loading');
       const loadingText = document.getElementById('loadingText');
@@ -198,7 +246,6 @@
         console.log(message);
         debugInfo.textContent = message;
         debugInfo.style.display = 'block';
-        // Re-enabled timeout for debug messages to hide after a few seconds
         setTimeout(() => {
           debugInfo.style.display = 'none';
         }, 3000);
@@ -220,7 +267,6 @@
       // Request camera permission explicitly
       async function requestCameraPermission() {
         try {
-          // Removed loadingText update from here to centralize in startAR
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: 'environment',
@@ -242,13 +288,14 @@
         }
       }
 
-      // Start AR function
-      async function startAR() {
+      // Start AR function (renamed from startAR for clarity in new flow)
+      async function startScanning() {
         try {
-          startBtn.disabled = true;
-          startBtn.textContent = 'Starting...';
+          scanBtn.disabled = true;
+          scanBtn.textContent = 'Starting...';
+          initialScreen.style.display = 'none'; // Hide initial screen
           loading.style.display = 'block';
-          loadingText.textContent = 'Preparing AR experience...'; // Initial generic message
+          loadingText.textContent = 'Preparing AR experience...';
 
           // Request camera permission first
           const hasPermission = await requestCameraPermission();
@@ -256,7 +303,7 @@
             throw new Error('Camera permission is required for AR to work');
           }
 
-          loadingText.textContent = 'Initializing AR system...'; // Update after camera permission
+          loadingText.textContent = 'Initializing AR system...';
           // Show the scene. The MindAR system will initialize with the scene.
           sceneEl.style.display = 'block';
 
@@ -271,12 +318,11 @@
             }, { once: true });
           });
 
-          loadingText.textContent = 'Starting camera...'; // Update before MindAR's internal camera start
+          loadingText.textContent = 'Starting camera...';
 
           // Now it's safe to get the system and start it
           const arSystem = sceneEl.systems['mindar-image'];
           if (!arSystem) {
-            // This throw should ideally not happen after arReady, but as a fallback
             throw new Error('MindAR system not found after arReady event. Unexpected error.');
           }
 
@@ -285,7 +331,7 @@
           
           arStarted = true;
           loading.style.display = 'none';
-          startBtn.style.display = 'none';
+          scanBtn.style.display = 'none'; // Hide scan button once AR starts
           updateMessage('Point your camera at the target image');
 
           debug('AR started successfully');
@@ -296,16 +342,14 @@
           debug('Error: ' + error.message);
 
           loading.style.display = 'none';
-          startBtn.disabled = false;
-          startBtn.textContent = 'Start AR Experience';
+          scanBtn.disabled = false;
+          scanBtn.textContent = 'Scan for AR'; // Reset button text
+          initialScreen.style.display = 'flex'; // Show initial screen again on error
 
           // Ensure scene is hidden if AR failed to start
           sceneEl.style.display = 'none';
 
           updateMessage('Failed to start AR: ' + error.message);
-
-          // Show start button again
-          startBtn.style.display = 'block';
         }
       }
 
@@ -319,8 +363,6 @@
             hideMessage();
           } catch (error) {
             console.error('Error playing video:', error);
-            // This error often happens due to autoplay policies.
-            // Guide user to interact.
             updateMessage('Tap to play video (autoplay prevented)');
           }
         }
@@ -344,7 +386,7 @@
       }
 
       // Event listeners
-      startBtn.addEventListener('click', startAR);
+      scanBtn.addEventListener('click', startScanning); // Changed from startBtn to scanBtn
 
       // Scene events
       sceneEl.addEventListener('loaded', () => {
@@ -352,17 +394,13 @@
         debug('A-Frame Scene loaded');
       });
 
-      // AR system events (moved handler here for clarity)
       sceneEl.addEventListener('arReady', () => {
-        // This event is handled within the startAR promise now for sequential flow
-        // but keeping this listener can be useful for general debugging.
         console.log('MindAR AR system component is ready');
       });
 
       sceneEl.addEventListener('arError', (event) => {
         console.error('MindAR AR Error:', event.detail);
         debug('MindAR AR Error: ' + JSON.stringify(event.detail));
-        // The startAR function now also catches this error for initial startup
         updateMessage('AR Error occurred. Please refresh and try again.');
       });
 
@@ -376,7 +414,6 @@
           targetVisible = true;
           updateMessage('Target detected! Loading video...');
           
-          // Play video after a short delay
           setTimeout(() => {
             playVideo();
           }, 500);
@@ -416,8 +453,8 @@
 
       // Click/touch events for interaction
       document.addEventListener('click', (e) => {
-        // Ensure the click isn't on the start button and AR is actually started and target is visible
-        if (e.target !== startBtn && arStarted && targetVisible) {
+        // Only allow interaction if AR is started and target is visible, and it's not the scan button
+        if (e.target !== scanBtn && arStarted && targetVisible) {
           if (video.paused) {
             playVideo();
           } else {
@@ -431,7 +468,6 @@
         if (document.hidden && arStarted) {
           pauseVideo();
         } else if (!document.hidden && targetVisible && arStarted) {
-          // Small delay to allow camera to re-engage
           setTimeout(() => {
             playVideo();
           }, 500);
@@ -442,7 +478,6 @@
       window.addEventListener('beforeunload', () => {
         if (arStarted) {
           pauseVideo();
-          // Attempt to stop the AR system gracefully
           const arSystem = sceneEl.systems['mindar-image'];
           if (arSystem && arSystem.stop) {
             arSystem.stop();
@@ -451,11 +486,11 @@
         }
       });
 
-      // Check for required features
+      // Check for required features on initial load
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         updateMessage('Camera not supported on this device/browser');
-        startBtn.disabled = true;
-        startBtn.textContent = 'Camera Not Supported';
+        scanBtn.disabled = true;
+        scanBtn.textContent = 'Camera Not Supported';
       }
 
       // Initial debug info
