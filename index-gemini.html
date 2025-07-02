@@ -205,9 +205,9 @@
     <!-- A-Frame Scene -->
     <a-scene
       id="arScene"
-      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false; showStats: false; maxTrack: 1; filterMinCF: 0.0001; filterBeta: 0.001; warmupTolerance: 5; missTolerance: 5"
+      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false; showStats: false; maxTrack: 1; filterMinCF: 0.001; filterBeta: 0.01; warmupTolerance: 2; missTolerance: 2"
       color-space="sRGB"
-      renderer="colorManagement: true, physicallyCorrectLights: true, antialias: true"
+      renderer="colorManagement: true, physicallyCorrectLights: false, antialias: false"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
       embedded
@@ -314,14 +314,46 @@
         }
       }
 
-      // Start AR function
+      // Pre-load target image to check connectivity
+      async function preloadTargetImage() {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          const timeout = setTimeout(() => {
+            reject(new Error('Target image failed to load - check internet connection'));
+          }, 10000);
+          
+          img.onload = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+          
+          img.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error('Target image failed to load - network error'));
+          };
+          
+          img.src = 'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png';
+        });
+      }
+
+      // Start AR function with improved initialization
       async function startScanning() {
         try {
           scanBtn.disabled = true;
           scanBtn.textContent = 'Starting...';
           initialScreen.style.display = 'none';
           loading.style.display = 'block';
-          loadingText.textContent = 'Preparing AR experience...';
+          loadingText.textContent = 'Checking connectivity...';
+
+          // Pre-load target image to verify network connectivity
+          try {
+            await preloadTargetImage();
+            debug('Target image preloaded successfully');
+          } catch (error) {
+            throw new Error('Network connectivity issue: ' + error.message);
+          }
+
+          loadingText.textContent = 'Requesting camera permission...';
 
           // Request camera permission first
           const hasPermission = await requestCameraPermission();
@@ -329,53 +361,83 @@
             throw new Error('Camera permission is required for AR to work');
           }
 
-          loadingText.textContent = 'Initializing AR system...';
+          loadingText.textContent = 'Preparing AR scene...';
           
           // Show the scene
           sceneEl.style.display = 'block';
 
-          // Wait for scene to be fully loaded
-          await new Promise((resolve) => {
+          // Wait for scene to be fully loaded with timeout
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              reject(new Error('A-Frame scene failed to load'));
+            }, 8000);
+
             if (sceneEl.hasLoaded) {
+              clearTimeout(timeout);
               resolve();
             } else {
-              sceneEl.addEventListener('loaded', resolve, { once: true });
+              sceneEl.addEventListener('loaded', () => {
+                clearTimeout(timeout);
+                resolve();
+              }, { once: true });
             }
           });
 
-          // Wait for MindAR system to be ready
-          const AR_READY_TIMEOUT = 20000; // 20 seconds
-          const arReadyPromise = new Promise((resolve, reject) => {
-            const timeoutId = setTimeout(() => {
-              reject(new Error(`MindAR system initialization timeout (${AR_READY_TIMEOUT / 1000}s)`));
-            }, AR_READY_TIMEOUT);
+          loadingText.textContent = 'Initializing AR tracking system...';
 
-            const onArReady = () => {
-              clearTimeout(timeoutId);
-              debug('MindAR system ready');
-              resolve();
-            };
-
-            const onArError = (event) => {
-              clearTimeout(timeoutId);
-              reject(new Error('MindAR initialization error: ' + JSON.stringify(event.detail)));
-            };
-
-            sceneEl.addEventListener('arReady', onArReady, { once: true });
-            sceneEl.addEventListener('arError', onArError, { once: true });
-          });
-
-          await arReadyPromise;
-
-          loadingText.textContent = 'Starting camera...';
-
-          // Get the AR system and start it
+          // Try to get MindAR system directly first
           arSystem = sceneEl.systems['mindar-image'];
           if (!arSystem) {
-            throw new Error('MindAR system not found');
+            // Wait a bit for systems to initialize
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            arSystem = sceneEl.systems['mindar-image'];
+            
+            if (!arSystem) {
+              throw new Error('MindAR system failed to initialize - component not found');
+            }
           }
 
-          await arSystem.start();
+          // Use a more aggressive approach - try to start without waiting for arReady
+          loadingText.textContent = 'Starting camera and AR tracking...';
+          
+          try {
+            // Start the AR system directly
+            await Promise.race([
+              arSystem.start(),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('AR system start timeout')), 15000)
+              )
+            ]);
+            
+            debug('AR system started directly');
+            
+          } catch (directStartError) {
+            debug('Direct start failed, trying with arReady event: ' + directStartError.message);
+            
+            // Fallback: wait for arReady event
+            const arReadyPromise = new Promise((resolve, reject) => {
+              const timeoutId = setTimeout(() => {
+                reject(new Error('MindAR initialization timeout - try refreshing or check network'));
+              }, 12000);
+
+              const onArReady = () => {
+                clearTimeout(timeoutId);
+                debug('MindAR system ready via event');
+                resolve();
+              };
+
+              const onArError = (event) => {
+                clearTimeout(timeoutId);
+                reject(new Error('MindAR error: ' + JSON.stringify(event.detail)));
+              };
+
+              sceneEl.addEventListener('arReady', onArReady, { once: true });
+              sceneEl.addEventListener('arError', onArError, { once: true });
+            });
+
+            await arReadyPromise;
+            await arSystem.start();
+          }
           
           arStarted = true;
           loading.style.display = 'none';
@@ -419,19 +481,34 @@
         }
       }
 
-      // Handle AR errors
+      // Handle AR errors with more specific guidance
       function handleARError(error) {
+        const errorMessage = error.message.toLowerCase();
+        let userMessage = 'AR initialization failed. ';
+        
+        if (errorMessage.includes('timeout')) {
+          userMessage += 'This may be due to slow internet or device performance. Try refreshing the page or using a different device.';
+        } else if (errorMessage.includes('network') || errorMessage.includes('connectivity')) {
+          userMessage += 'Check your internet connection and try again.';
+        } else if (errorMessage.includes('camera') || errorMessage.includes('permission')) {
+          userMessage += 'Make sure camera permissions are enabled in your browser settings.';
+        } else if (errorMessage.includes('not supported')) {
+          userMessage += 'Your browser or device may not support AR features.';
+        } else {
+          userMessage += 'Please refresh the page and try again.';
+        }
+        
         debug('AR Error: ' + error.message);
         
         loading.style.display = 'none';
         scanBtn.disabled = false;
-        scanBtn.textContent = 'Scan for AR';
+        scanBtn.textContent = 'Try Again';
         initialScreen.style.display = 'flex';
         sceneEl.style.display = 'none';
         stopBtn.style.display = 'none';
         
-        updateMessage('AR Error: ' + error.message);
-        hideMessage(5000);
+        updateMessage(userMessage);
+        hideMessage(8000);
       }
 
       // Play video function
@@ -559,14 +636,47 @@
       });
 
       // Check for required features on initial load
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        updateMessage('Camera not supported on this device/browser');
-        scanBtn.disabled = true;
-        scanBtn.textContent = 'Camera Not Supported';
+      function checkBrowserSupport() {
+        const issues = [];
+        
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          issues.push('Camera access not supported');
+        }
+        
+        if (!window.WebAssembly) {
+          issues.push('WebAssembly not supported');
+        }
+        
+        // Check for WebGL support
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) {
+          issues.push('WebGL not supported');
+        }
+        
+        if (issues.length > 0) {
+          updateMessage('Browser compatibility issues: ' + issues.join(', '));
+          scanBtn.disabled = true;
+          scanBtn.textContent = 'Not Supported';
+          return false;
+        }
+        
+        return true;
       }
 
-      // Initial debug info
-      debug('AR system ready to start');
+      // Initialize app
+      function initializeApp() {
+        if (checkBrowserSupport()) {
+          debug('Browser compatibility check passed');
+        }
+      }
+
+      // Run initialization when DOM is loaded
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeApp);
+      } else {
+        initializeApp();
+      }
     </script>
   </body>
 </html>
