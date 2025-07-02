@@ -4,7 +4,7 @@
     <title>Web AR Video Player (MindAR)</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-
+    
     <!-- A-Frame library -->
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
     <!-- MindAR A-Frame library -->
@@ -159,10 +159,10 @@
       <!-- Target anchor -->
       <a-entity mindar-image-target="targetIndex: 0">
         <!-- Video plane -->
-        <a-plane
-          src="#vid"
-          position="0 0 0"
-          height="0.552"
+        <a-plane 
+          src="#vid" 
+          position="0 0 0" 
+          height="0.552" 
           width="1"
           rotation="0 0 0"
           material="transparent: false"
@@ -170,10 +170,10 @@
       </a-entity>
 
       <!-- Camera -->
-      <a-camera
-        position="0 0 0"
+      <a-camera 
+        position="0 0 0" 
         look-controls="enabled: false"
-        wasd-controls="enabled: false"
+        wasd-controls="enabled: false" 
         cursor="fuse: false; rayOrigin: mouse;"
       ></a-camera>
     </a-scene>
@@ -259,23 +259,18 @@
           // Show the scene. The MindAR system will initialize with the scene.
           sceneEl.style.display = 'block';
 
-          // --- CRITICAL FIX START ---
+          // --- FIX START: Removed arSystemComponent.is check ---
           // Wait for the MindAR system to be ready (arReady event)
           await new Promise((resolve, reject) => {
-            const arSystemComponent = sceneEl.components['mindar-image'];
-            if (arSystemComponent && arSystemComponent.is("arReady")) {
-                resolve(); // If already ready (unlikely on first start, but good for robustness)
-            } else {
-                sceneEl.addEventListener('arReady', () => {
-                    debug('MindAR system is now ready');
-                    resolve();
-                }, { once: true });
-                sceneEl.addEventListener('arError', (event) => {
-                    reject(new Error('MindAR AR Error: ' + JSON.stringify(event.detail)));
-                }, { once: true });
-            }
+            sceneEl.addEventListener('arReady', () => {
+                debug('MindAR system is now ready');
+                resolve();
+            }, { once: true });
+            sceneEl.addEventListener('arError', (event) => {
+                reject(new Error('MindAR AR Error: ' + JSON.stringify(event.detail)));
+            }, { once: true });
           });
-          // --- CRITICAL FIX END ---
+          // --- FIX END ---
 
           loadingText.textContent = 'Starting camera...';
 
@@ -288,7 +283,7 @@
 
           debug('Starting MindAR system...');
           await arSystem.start(); // Start the AR system
-
+          
           arStarted = true;
           loading.style.display = 'none';
           startBtn.style.display = 'none';
@@ -374,14 +369,14 @@
 
       // Target tracking events
       const target = document.querySelector('a-entity[mindar-image-target]');
-
+      
       if (target) {
         target.addEventListener('targetFound', () => {
           console.log('Target found');
           debug('Target detected!');
           targetVisible = true;
           updateMessage('Target detected! Loading video...');
-
+          
           // Play video after a short delay
           setTimeout(() => {
             playVideo();
