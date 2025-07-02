@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web AR Video Player</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/aframe/1.4.0/aframe.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ar.js/2.2.2/aframe-ar.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        
+        #info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        #instructions {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            z-index: 1000;
+            text-align: center;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        #startButton {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            z-index: 1001;
+        }
+        
+        #startButton:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h3>Web AR Video Player</h3>
+        <p>Status: <span id="status">Initializing...</span></p>
+        <p>Print the Hiro marker or use your phone to display it from: <a href="https://github.com/jeromeetienne/AR.js/blob/master/data/images/HIRO.jpg" target="_blank" style="color: #4CAF50;">Hiro Marker</a></p>
+    </div>
+    
+    <div id="instructions">
+        Point your camera at the Hiro marker to play the video
+    </div>
+    
+    <button id="startButton">Start AR Experience</button>
+    
+    <a-scene
+        id="arScene"
+        embedded
+        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;"
+        vr-mode-ui="enabled: false"
+        class="hidden">
+        
+        <a-assets>
+            <!-- Using a sample video - replace with your own video URL -->
+            <video id="videoAsset" 
+                   src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                   preload="auto" 
+                   loop="true" 
+                   crossorigin="anonymous"
+                   webkit-playsinline 
+                   playsinline>
+            </video>
+        </a-assets>
+        
+        <!-- Marker-based AR -->
+        <a-marker preset="hiro" id="hiroMarker">
+            <!-- Video plane that will appear on the marker -->
+            <a-plane 
+                id="videoPlane"
+                position="0 0 0" 
+                rotation="-90 0 0" 
+                width="2" 
+                height="1.5" 
+                material="src: #videoAsset; transparent: true; alphaTest: 0.1"
+                visible="false">
+            </a-plane>
+            
+            <!-- Optional: Add a border frame around the video -->
+            <a-plane 
+                position="0 0 -0.01" 
+                rotation="-90 0 0" 
+                width="2.2" 
+                height="1.7" 
+                material="color: #333; transparent: true; opacity: 0.8"
+                visible="false"
+                id="videoFrame">
+            </a-plane>
+        </a-marker>
+        
+        <a-entity camera></a-entity>
+    </a-scene>
+
+    <script>
+        let arStarted = false;
+        let video = null;
+        let marker = null;
+        let videoPlane = null;
+        let videoFrame = null;
+        let statusElement = null;
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            statusElement = document.getElementById('status');
+            video = document.getElementById('videoAsset');
+            marker = document.getElementById('hiroMarker');
+            videoPlane = document.getElementById('videoPlane');
+            videoFrame = document.getElementById('videoFrame');
+            
+            // Start button click handler
+            document.getElementById('startButton').addEventListener('click', startAR);
+            
+            // Set up marker event listeners
+            if (marker) {
+                marker.addEventListener('markerFound', onMarkerFound);
+                marker.addEventListener('markerLost', onMarkerLost);
+            }
+            
+            updateStatus('Ready to start AR');
+        });
+        
+        function startAR() {
+            const startButton = document.getElementById('startButton');
+            const arScene = document.getElementById('arScene');
+            
+            startButton.style.display = 'none';
+            arScene.classList.remove('hidden');
+            arStarted = true;
+            
+            updateStatus('AR Started - Looking for marker...');
+            
+            // Initialize video
+            if (video) {
+                video.muted = true; // Start muted to comply with autoplay policies
+                video.load();
+            }
+        }
+        
+        function onMarkerFound() {
+            console.log('Marker found!');
+            updateStatus('Marker detected - Playing video');
+            
+            // Show video and frame
+            if (videoPlane) videoPlane.setAttribute('visible', true);
+            if (videoFrame) videoFrame.setAttribute('visible', true);
+            
+            // Play video
+            if (video) {
+                video.play().then(() => {
+                    console.log('Video started playing');
+                }).catch(err => {
+                    console.error('Error playing video:', err);
+                    updateStatus('Video play error - tap to unmute');
+                    
+                    // Add click handler to unmute and play
+                    document.addEventListener('click', function unmute() {
+                        video.muted = false;
+                        video.play();
+                        document.removeEventListener('click', unmute);
+                    }, { once: true });
+                });
+            }
+        }
+        
+        function onMarkerLost() {
+            console.log('Marker lost!');
+            updateStatus('Marker lost - Video paused');
+            
+            // Hide video and frame
+            if (videoPlane) videoPlane.setAttribute('visible', false);
+            if (videoFrame) videoFrame.setAttribute('visible', false);
+            
+            // Pause video
+            if (video) {
+                video.pause();
+            }
+        }
+        
+        function updateStatus(message) {
+            if (statusElement) {
+                statusElement.textContent = message;
+            }
+            console.log('Status:', message);
+        }
+        
+        // Handle video loading events
+        document.addEventListener('DOMContentLoaded', function() {
+            if (video) {
+                video.addEventListener('loadstart', () => updateStatus('Loading video...'));
+                video.addEventListener('canplay', () => updateStatus('Video ready'));
+                video.addEventListener('error', (e) => {
+                    console.error('Video error:', e);
+                    updateStatus('Video loading error');
+                });
+            }
+        });
+        
+        // Handle AR.js events
+        window.addEventListener('arjs-video-loaded', () => {
+            updateStatus('Camera loaded - Looking for marker...');
+        });
+        
+        // Handle camera permissions
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                stream.getTracks().forEach(track => track.stop());
+                console.log('Camera permission granted');
+            })
+            .catch(err => {
+                console.error('Camera permission denied:', err);
+                updateStatus('Camera permission required');
+            });
+    </script>
+</body>
+</html>

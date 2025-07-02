@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Web AR Video Player (MindAR)</title>
+    <!-- A-Frame library for building AR/VR experiences -->
+    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <!-- MindAR library for image tracking with A-Frame -->
+    <!-- Using the CDN for simplicity. You can also self-host. -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.1/dist/mindar-image-aframe.prod.js"></script>
+
+    <style>
+      /* Basic styling to ensure the AR scene fills the screen */
+      body {
+        margin: 0;
+        overflow: hidden; /* Prevent scrolling */
+        font-family: 'Inter', sans-serif; /* Use Inter font */
+        background-color: #1a1a2e; /* Dark background for contrast */
+        color: #e0e0e0; /* Light text color */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      /* Container for messages or instructions */
+      .message-box {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(0, 0, 0, 0.7);
+        padding: 10px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        z-index: 100;
+        text-align: center;
+        font-size: 0.9em;
+        max-width: 90%;
+      }
+
+      /* Style for the A-Frame scene, making it responsive */
+      a-scene {
+        width: 100vw;
+        height: 100vh;
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Message box for user instructions or feedback -->
+    <div id="messageBox" class="message-box">
+      Point your camera at your custom MindAR target image. Tap anywhere to
+      ensure video playback on mobile.
+    </div>
+
+    <!-- A-Frame Scene: This is where the AR experience is rendered -->
+    <!--
+      - mindar-image: Configures MindAR for image tracking.
+        - imageTargetSrc: IMPORTANT! Path to your generated .mind file.
+        - autoStart: Starts the AR experience automatically.
+        - showStats: Displays performance stats (useful for debugging).
+        - filterMinCF: Minimum confidence factor for tracking (adjust if tracking is unstable).
+        - filterBeta: Beta value for tracking (adjust for smoother/faster tracking).
+    -->
+    <a-scene
+      mindar-image="imageTargetSrc: 'targets.mind;' autoStart: true; showStats: false;"
+      embedded
+      color-space="sRGB"
+      renderer="colorManagement: true, physicallyCorrectLights: true"
+      vr-mode-ui="enabled: false"
+      device-orientation-permission-ui="enabled: false"
+    >
+      <!-- Assets section: Pre-loads resources like videos, images, etc. -->
+      <a-assets>
+        <!--
+          Video element:
+          - id: Unique identifier to reference this video in the scene.
+          - src: IMPORTANT! Replace 'your-video-file.mp4' with the actual path to your video.
+                 Ensure the video file is accessible (e.g., in the same directory or a public URL).
+          - loop: Video will play in a continuous loop.
+          - autoplay: Attempts to play automatically, but often requires user interaction on mobile.
+          - preload: 'auto' suggests the browser should load the entire video.
+          - crossorigin: 'anonymous' is often needed if the video is hosted on a different domain.
+          - playsinline webkit-playsinline: Crucial for playing video directly within the browser
+                                           on iOS devices, preventing it from going fullscreen automatically.
+        -->
+        <video
+          id="arVideo"
+          src="https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-mp4-file.mp4"
+          loop="true"
+          autoplay="true"
+          preload="auto"
+          crossorigin="anonymous"
+          playsinline
+          webkit-playsinline
+        ></video>
+        <!-- Placeholder video from learningcontainer.com for demonstration -->
+      </a-assets>
+
+      <!-- MindAR Image Target: This entity represents your custom image in the AR scene. -->
+      <!--
+        - mindar-image-target: Attaches the image tracking behavior.
+        - targetIndex: Specifies which target image from your .mind file to use.
+                       If you only have one image in your .mind file, this will be 0.
+      -->
+      <a-entity mindar-image-target="targetIndex: 0">
+        <!--
+          Video Plane: This is the 3D object that will display the video.
+          It is a child of the mindar-image-target, so it moves with the tracked image.
+          - src: References the video asset defined above using its ID (e.g., #arVideo).
+          - width, height: Dimensions of the video plane in AR units.
+                           Adjust these to fit your target image's aspect ratio.
+          - rotation: Rotates the plane to be flat on the target image (X-axis -90 degrees).
+          - position: Positions the plane relative to the target image's center.
+        -->
+        <a-plane
+          src="#arVideo"
+          width="1"
+          height="0.75"
+          rotation="0 0 0"
+          position="0 0 0.05"
+        ></a-plane>
+        <!--
+          Note on position: A small positive Z-position (e.g., 0.05) can lift the video
+          slightly above the target image to prevent Z-fighting (flickering).
+          Rotation is now 0 0 0 because the plane is facing forward by default,
+          and the target image is assumed to be flat.
+        -->
+      </a-entity>
+
+      <!-- A-Frame Camera: Represents the viewer's perspective. MindAR manages its position. -->
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    </a-scene>
+
+    <script>
+      // Get references to the video element and message box
+      const arVideo = document.getElementById('arVideo');
+      const messageBox = document.getElementById('messageBox');
+
+      // Get the A-Frame scene element
+      const sceneEl = document.querySelector('a-scene');
+
+      // --- Video Playback Control ---
+
+      // Function to attempt playing the video
+      function tryPlayVideo() {
+        if (arVideo.paused) {
+          arVideo.play().catch((error) => {
+            console.error('Error attempting to play video:', error);
+            // Display a user-friendly message if autoplay fails
+            messageBox.textContent = 'Tap anywhere to play video. (Autoplay blocked)';
+          });
+        }
+      }
+
+      // Add a global click/tap listener to help initiate video playback,
+      // especially important for mobile browsers that block autoplay without user interaction.
+      document.body.addEventListener('click', tryPlayVideo);
+      document.body.addEventListener('touchend', tryPlayVideo); // For touch devices
+
+      // --- MindAR Event Handling ---
+
+      // Listen for when MindAR is loaded and ready
+      sceneEl.addEventListener('loaded', () => {
+        console.log('MindAR scene loaded.');
+        messageBox.textContent = 'MindAR loaded. Point camera at target image.';
+      });
+
+      // Get the MindAR image target entity
+      const imageTarget = document.querySelector('a-entity[mindar-image-target]');
+
+      if (imageTarget) {
+        // Event listener for when the MindAR target image is detected
+        imageTarget.addEventListener('targetFound', () => {
+          console.log('MindAR Target Found! Attempting to play video.');
+          messageBox.textContent = 'Target found! Video playing...';
+          tryPlayVideo(); // Try to play the video when the target is found
+        });
+
+        // Event listener for when the MindAR target image is lost (no longer visible)
+        imageTarget.addEventListener('targetLost', () => {
+          console.log('MindAR Target Lost! Pausing video.');
+          messageBox.textContent = 'Target lost. Point camera at target image.';
+          arVideo.pause(); // Pause the video when the target is lost
+        });
+      } else {
+        console.error('MindAR image target entity not found. Please check your HTML structure.');
+      }
+
+      // Optional: Event listeners for video status logging
+      arVideo.addEventListener('play', () => {
+        console.log('Video started playing.');
+        messageBox.textContent = 'Video is playing!';
+        // Hide message box after a few seconds if video plays successfully
+        setTimeout(() => {
+          if (!arVideo.paused) {
+            messageBox.style.display = 'none';
+          }
+        }, 5000); // Hide after 5 seconds
+      });
+
+      arVideo.addEventListener('pause', () => {
+        console.log('Video paused.');
+        // Message box content updated by targetLost or tryPlayVideo error
+      });
+
+      arVideo.addEventListener('ended', () => {
+        console.log('Video ended.');
+        // If looping, this might not fire or might fire repeatedly
+      });
+
+      arVideo.addEventListener('error', (e) => {
+        console.error('Video error:', e);
+        messageBox.textContent = 'Error loading or playing video. Check console.';
+      });
+    </script>
+  </body>
+</html>
