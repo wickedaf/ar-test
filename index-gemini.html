@@ -205,9 +205,9 @@
     <!-- A-Frame Scene -->
     <a-scene
       id="arScene"
-      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false; showStats: false; maxTrack: 1; filterMinCF: 0.001; filterBeta: 0.01; warmupTolerance: 2; missTolerance: 2"
+      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false; showStats: false"
       color-space="sRGB"
-      renderer="colorManagement: true, physicallyCorrectLights: false, antialias: false"
+      renderer="colorManagement: false, antialias: false"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
       embedded
@@ -264,8 +264,8 @@
       // State variables
       let arStarted = false;
       let targetVisible = false;
-      let cameraPermissionGranted = false;
       let arSystem = null;
+      let initializationAttempts = 0;
 
       // Debug function
       function debug(message) {
@@ -290,164 +290,106 @@
         }, delay);
       }
 
-      // Request camera permission explicitly
-      async function requestCameraPermission() {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: 'environment',
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            }
-          });
-
-          // Stop the stream immediately, we just needed permission
-          stream.getTracks().forEach(track => track.stop());
-          cameraPermissionGranted = true;
-          debug('Camera permission granted');
-          return true;
-        } catch (error) {
-          console.error('Camera permission denied:', error);
-          debug('Camera permission denied: ' + error.message);
-          updateMessage('Camera permission denied. Please enable it in your browser settings.');
-          return false;
-        }
-      }
-
-      // Pre-load target image to check connectivity
-      async function preloadTargetImage() {
+      // Simple initialization approach
+      async function initializeAR() {
         return new Promise((resolve, reject) => {
-          const img = new Image();
+          let resolved = false;
+          
+          // Set up success handler
+          const onArReady = () => {
+            if (!resolved) {
+              resolved = true;
+              debug('AR system initialized successfully');
+              resolve();
+            }
+          };
+          
+          // Set up error handler
+          const onArError = (event) => {
+            if (!resolved) {
+              resolved = true;
+              reject(new Error('AR initialization failed: ' + JSON.stringify(event.detail)));
+            }
+          };
+          
+          // Set up timeout
           const timeout = setTimeout(() => {
-            reject(new Error('Target image failed to load - check internet connection'));
+            if (!resolved) {
+              resolved = true;
+              reject(new Error('AR initialization timeout'));
+            }
           }, 10000);
           
-          img.onload = () => {
+          // Clean up function
+          const cleanup = () => {
             clearTimeout(timeout);
-            resolve();
+            sceneEl.removeEventListener('arReady', onArReady);
+            sceneEl.removeEventListener('arError', onArError);
           };
           
-          img.onerror = () => {
-            clearTimeout(timeout);
-            reject(new Error('Target image failed to load - network error'));
-          };
+          // Add event listeners
+          sceneEl.addEventListener('arReady', () => {
+            cleanup();
+            onArReady();
+          }, { once: true });
           
-          img.src = 'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png';
+          sceneEl.addEventListener('arError', (event) => {
+            cleanup();
+            onArError(event);
+          }, { once: true });
+          
+          // Show scene to trigger initialization
+          sceneEl.style.display = 'block';
         });
       }
 
-      // Start AR function with improved initialization
+      // Simplified start function
       async function startScanning() {
         try {
+          initializationAttempts++;
+          
           scanBtn.disabled = true;
           scanBtn.textContent = 'Starting...';
           initialScreen.style.display = 'none';
           loading.style.display = 'block';
-          loadingText.textContent = 'Checking connectivity...';
-
-          // Pre-load target image to verify network connectivity
-          try {
-            await preloadTargetImage();
-            debug('Target image preloaded successfully');
-          } catch (error) {
-            throw new Error('Network connectivity issue: ' + error.message);
-          }
-
-          loadingText.textContent = 'Requesting camera permission...';
-
-          // Request camera permission first
-          const hasPermission = await requestCameraPermission();
-          if (!hasPermission) {
-            throw new Error('Camera permission is required for AR to work');
-          }
-
-          loadingText.textContent = 'Preparing AR scene...';
           
-          // Show the scene
-          sceneEl.style.display = 'block';
-
-          // Wait for scene to be fully loaded with timeout
-          await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              reject(new Error('A-Frame scene failed to load'));
-            }, 8000);
-
-            if (sceneEl.hasLoaded) {
-              clearTimeout(timeout);
-              resolve();
-            } else {
-              sceneEl.addEventListener('loaded', () => {
-                clearTimeout(timeout);
-                resolve();
-              }, { once: true });
-            }
-          });
-
-          loadingText.textContent = 'Initializing AR tracking system...';
-
-          // Try to get MindAR system directly first
-          arSystem = sceneEl.systems['mindar-image'];
-          if (!arSystem) {
-            // Wait a bit for systems to initialize
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            arSystem = sceneEl.systems['mindar-image'];
-            
-            if (!arSystem) {
-              throw new Error('MindAR system failed to initialize - component not found');
-            }
-          }
-
-          // Use a more aggressive approach - try to start without waiting for arReady
-          loadingText.textContent = 'Starting camera and AR tracking...';
+          // Step 1: Request camera permission
+          loadingText.textContent = 'Requesting camera access...';
           
           try {
-            // Start the AR system directly
-            await Promise.race([
-              arSystem.start(),
-              new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('AR system start timeout')), 15000)
-              )
-            ]);
-            
-            debug('AR system started directly');
-            
-          } catch (directStartError) {
-            debug('Direct start failed, trying with arReady event: ' + directStartError.message);
-            
-            // Fallback: wait for arReady event
-            const arReadyPromise = new Promise((resolve, reject) => {
-              const timeoutId = setTimeout(() => {
-                reject(new Error('MindAR initialization timeout - try refreshing or check network'));
-              }, 12000);
-
-              const onArReady = () => {
-                clearTimeout(timeoutId);
-                debug('MindAR system ready via event');
-                resolve();
-              };
-
-              const onArError = (event) => {
-                clearTimeout(timeoutId);
-                reject(new Error('MindAR error: ' + JSON.stringify(event.detail)));
-              };
-
-              sceneEl.addEventListener('arReady', onArReady, { once: true });
-              sceneEl.addEventListener('arError', onArError, { once: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: 'environment' }
             });
-
-            await arReadyPromise;
-            await arSystem.start();
+            stream.getTracks().forEach(track => track.stop());
+            debug('Camera permission granted');
+          } catch (error) {
+            throw new Error('Camera permission denied');
           }
           
+          // Step 2: Initialize AR
+          loadingText.textContent = 'Initializing AR system...';
+          await initializeAR();
+          
+          // Step 3: Get AR system and start
+          loadingText.textContent = 'Starting AR tracking...';
+          arSystem = sceneEl.systems['mindar-image'];
+          
+          if (!arSystem) {
+            throw new Error('MindAR system not found');
+          }
+          
+          await arSystem.start();
+          
+          // Success
           arStarted = true;
           loading.style.display = 'none';
           stopBtn.style.display = 'block';
           updateMessage('Point your camera at the target image');
-
+          
           debug('AR started successfully');
-
+          
         } catch (error) {
-          console.error('Error starting AR:', error);
+          console.error('AR initialization error:', error);
           handleARError(error);
         }
       }
@@ -481,34 +423,36 @@
         }
       }
 
-      // Handle AR errors with more specific guidance
+      // Handle AR errors with retry logic
       function handleARError(error) {
-        const errorMessage = error.message.toLowerCase();
-        let userMessage = 'AR initialization failed. ';
-        
-        if (errorMessage.includes('timeout')) {
-          userMessage += 'This may be due to slow internet or device performance. Try refreshing the page or using a different device.';
-        } else if (errorMessage.includes('network') || errorMessage.includes('connectivity')) {
-          userMessage += 'Check your internet connection and try again.';
-        } else if (errorMessage.includes('camera') || errorMessage.includes('permission')) {
-          userMessage += 'Make sure camera permissions are enabled in your browser settings.';
-        } else if (errorMessage.includes('not supported')) {
-          userMessage += 'Your browser or device may not support AR features.';
-        } else {
-          userMessage += 'Please refresh the page and try again.';
-        }
-        
-        debug('AR Error: ' + error.message);
-        
         loading.style.display = 'none';
-        scanBtn.disabled = false;
-        scanBtn.textContent = 'Try Again';
-        initialScreen.style.display = 'flex';
         sceneEl.style.display = 'none';
         stopBtn.style.display = 'none';
+        initialScreen.style.display = 'flex';
         
-        updateMessage(userMessage);
-        hideMessage(8000);
+        let buttonText = 'Try Again';
+        let errorMsg = 'AR failed to start. ';
+        
+        if (error.message.includes('permission') || error.message.includes('Camera')) {
+          errorMsg += 'Please allow camera access and try again.';
+          buttonText = 'Retry with Camera';
+        } else if (error.message.includes('timeout')) {
+          errorMsg += 'Loading took too long. Check your internet connection.';
+        } else if (initializationAttempts >= 3) {
+          errorMsg += 'Multiple attempts failed. Try refreshing the page.';
+          buttonText = 'Refresh Page';
+          scanBtn.onclick = () => location.reload();
+        } else {
+          errorMsg += 'Please try again.';
+        }
+        
+        scanBtn.disabled = false;
+        scanBtn.textContent = buttonText;
+        
+        updateMessage(errorMsg);
+        hideMessage(6000);
+        
+        debug(`AR Error (attempt ${initializationAttempts}): ${error.message}`);
       }
 
       // Play video function
@@ -548,19 +492,9 @@
       scanBtn.addEventListener('click', startScanning);
       stopBtn.addEventListener('click', stopAR);
 
-      // Scene events
+      // Scene events - simplified
       sceneEl.addEventListener('loaded', () => {
         console.log('A-Frame Scene loaded');
-        debug('A-Frame Scene loaded');
-      });
-
-      sceneEl.addEventListener('arReady', () => {
-        console.log('MindAR AR system ready');
-      });
-
-      sceneEl.addEventListener('arError', (event) => {
-        console.error('MindAR AR Error:', event.detail);
-        handleARError(new Error('MindAR runtime error: ' + JSON.stringify(event.detail)));
       });
 
       // Target tracking events
@@ -590,12 +524,10 @@
       // Video events
       video.addEventListener('loadeddata', () => {
         console.log('Video data loaded');
-        debug('Video ready');
       });
 
       video.addEventListener('error', (e) => {
         console.error('Video error:', e);
-        debug('Video error');
         updateMessage('Video loading error');
         hideMessage();
       });
@@ -635,47 +567,26 @@
         }
       });
 
-      // Check for required features on initial load
+      // Check browser compatibility
       function checkBrowserSupport() {
-        const issues = [];
-        
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          issues.push('Camera access not supported');
+          updateMessage('Camera not supported on this device/browser');
+          scanBtn.disabled = true;
+          scanBtn.textContent = 'Not Supported';
+          return false;
         }
         
         if (!window.WebAssembly) {
-          issues.push('WebAssembly not supported');
-        }
-        
-        // Check for WebGL support
-        const canvas = document.createElement('canvas');
-        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-        if (!gl) {
-          issues.push('WebGL not supported');
-        }
-        
-        if (issues.length > 0) {
-          updateMessage('Browser compatibility issues: ' + issues.join(', '));
-          scanBtn.disabled = true;
-          scanBtn.textContent = 'Not Supported';
+          updateMessage('WebAssembly not supported - AR may not work properly');
           return false;
         }
         
         return true;
       }
 
-      // Initialize app
-      function initializeApp() {
-        if (checkBrowserSupport()) {
-          debug('Browser compatibility check passed');
-        }
-      }
-
-      // Run initialization when DOM is loaded
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeApp);
-      } else {
-        initializeApp();
+      // Initialize
+      if (checkBrowserSupport()) {
+        debug('Browser compatibility check passed');
       }
     </script>
   </body>
