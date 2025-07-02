@@ -198,10 +198,10 @@
         console.log(message);
         debugInfo.textContent = message;
         debugInfo.style.display = 'block';
-        // Remove the timeout for now to keep debug messages visible for debugging
-        // setTimeout(() => {
-        //   debugInfo.style.display = 'none';
-        // }, 3000);
+        // Re-enabled timeout for debug messages to hide after a few seconds
+        setTimeout(() => {
+          debugInfo.style.display = 'none';
+        }, 3000);
       }
 
       // Update message
@@ -220,7 +220,7 @@
       // Request camera permission explicitly
       async function requestCameraPermission() {
         try {
-          loadingText.textContent = 'Requesting camera permission...';
+          // Removed loadingText update from here to centralize in startAR
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: 'environment',
@@ -248,7 +248,7 @@
           startBtn.disabled = true;
           startBtn.textContent = 'Starting...';
           loading.style.display = 'block';
-          loadingText.textContent = 'Initializing AR system...';
+          loadingText.textContent = 'Preparing AR experience...'; // Initial generic message
 
           // Request camera permission first
           const hasPermission = await requestCameraPermission();
@@ -256,10 +256,10 @@
             throw new Error('Camera permission is required for AR to work');
           }
 
+          loadingText.textContent = 'Initializing AR system...'; // Update after camera permission
           // Show the scene. The MindAR system will initialize with the scene.
           sceneEl.style.display = 'block';
 
-          // --- FIX START: Removed arSystemComponent.is check ---
           // Wait for the MindAR system to be ready (arReady event)
           await new Promise((resolve, reject) => {
             sceneEl.addEventListener('arReady', () => {
@@ -270,9 +270,8 @@
                 reject(new Error('MindAR AR Error: ' + JSON.stringify(event.detail)));
             }, { once: true });
           });
-          // --- FIX END ---
 
-          loadingText.textContent = 'Starting camera...';
+          loadingText.textContent = 'Starting camera...'; // Update before MindAR's internal camera start
 
           // Now it's safe to get the system and start it
           const arSystem = sceneEl.systems['mindar-image'];
