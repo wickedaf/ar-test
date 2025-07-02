@@ -49,28 +49,38 @@
         border-radius: 5px;
         cursor: pointer;
         z-index: 1001;
-        display: none;
+        display: block;
       }
 
       .start-btn:hover {
         background-color: #45a049;
       }
 
+      .start-btn:disabled {
+        background-color: #666;
+        cursor: not-allowed;
+      }
+
       /* A-Frame scene styling */
       a-scene {
         width: 100vw;
         height: 100vh;
+        position: absolute;
+        top: 0;
+        left: 0;
       }
 
       /* Loading animation */
       .loading {
         position: fixed;
-        top: 50%;
+        top: 60%;
         left: 50%;
         transform: translate(-50%, -50%);
         color: white;
-        font-size: 18px;
+        font-size: 16px;
         z-index: 999;
+        text-align: center;
+        display: none;
       }
 
       .spinner {
@@ -87,39 +97,57 @@
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
       }
+
+      /* Debug info */
+      .debug-info {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 5px 10px;
+        font-size: 12px;
+        border-radius: 3px;
+        z-index: 1000;
+        display: none;
+      }
     </style>
   </head>
   <body>
-    <!-- Loading indicator -->
-    <div id="loading" class="loading">
-      <div class="spinner"></div>
-      <div>Loading AR...</div>
-    </div>
-
     <!-- Start button -->
     <button id="startBtn" class="start-btn">Start AR Experience</button>
 
-    <!-- Message overlay -->
-    <div id="messageOverlay" class="message-overlay">
-      Initializing...
+    <!-- Loading indicator -->
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <div id="loadingText">Starting camera...</div>
     </div>
+
+    <!-- Message overlay -->
+    <div id="messageOverlay" class="message-overlay" style="display: none;">
+      Point camera at target image
+    </div>
+
+    <!-- Debug info -->
+    <div id="debugInfo" class="debug-info"></div>
 
     <!-- A-Frame Scene -->
     <a-scene
-      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false; showStats: false;"
+      id="arScene"
+      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false; showStats: false; maxTrack: 1; filterMinCF: 0.0001; filterBeta: 0.001; warmupTolerance: 5; missTolerance: 5"
       color-space="sRGB"
-      renderer="colorManagement: true, physicallyCorrectLights"
+      renderer="colorManagement: true, physicallyCorrectLights, antialias: true"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
       embedded
-      style="position: absolute; top: 0; left: 0;"
+      style="display: none;"
     >
       <!-- Assets -->
       <a-assets>
         <video
           id="vid"
           src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-          preload="auto"
+          preload="metadata"
           loop="true"
           crossorigin="anonymous"
           webkit-playsinline
@@ -137,6 +165,7 @@
           height="0.552"
           width="1"
           rotation="0 0 0"
+          material="transparent: false"
         ></a-plane>
       </a-entity>
 
@@ -144,22 +173,35 @@
       <a-camera
         position="0 0 0"
         look-controls="enabled: false"
+        wasd-controls="enabled: false"
         cursor="fuse: false; rayOrigin: mouse;"
-        raycaster="far: 10000; objects: .clickable"
       ></a-camera>
     </a-scene>
 
     <script>
       // DOM elements
-      const sceneEl = document.querySelector('a-scene');
+      const sceneEl = document.getElementById('arScene');
       const video = document.querySelector('#vid');
       const startBtn = document.getElementById('startBtn');
       const messageOverlay = document.getElementById('messageOverlay');
       const loading = document.getElementById('loading');
+      const loadingText = document.getElementById('loadingText');
+      const debugInfo = document.getElementById('debugInfo');
 
       // State variables
       let arStarted = false;
       let targetVisible = false;
+      let cameraPermissionGranted = false;
+
+      // Debug function
+      function debug(message) {
+        console.log(message);
+        debugInfo.textContent = message;
+        debugInfo.style.display = 'block';
+        setTimeout(() => {
+          debugInfo.style.display = 'none';
+        }, 3000);
+      }
 
       // Update message
       function updateMessage(text) {
@@ -168,50 +210,112 @@
       }
 
       // Hide message after delay
-      function hideMessageAfterDelay(delay = 3000) {
+      function hideMessage(delay = 3000) {
         setTimeout(() => {
-          if (targetVisible) {
-            messageOverlay.style.display = 'none';
-          }
+          messageOverlay.style.display = 'none';
         }, delay);
+      }
+
+      // Request camera permission explicitly
+      async function requestCameraPermission() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: 'environment',
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          });
+
+          // Stop the stream immediately, we just needed permission
+          stream.getTracks().forEach(track => track.stop());
+          cameraPermissionGranted = true;
+          debug('Camera permission granted');
+          return true;
+        } catch (error) {
+          console.error('Camera permission denied:', error);
+          debug('Camera permission denied: ' + error.message);
+          return false;
+        }
       }
 
       // Start AR function
       async function startAR() {
         try {
-          updateMessage('Starting camera...');
-          startBtn.style.display = 'none';
+          startBtn.disabled = true;
+          startBtn.textContent = 'Starting...';
+          loading.style.display = 'block';
+          loadingText.textContent = 'Requesting camera permission...';
+
+          // Request camera permission first
+          const hasPermission = await requestCameraPermission();
+          if (!hasPermission) {
+            throw new Error('Camera permission is required for AR to work');
+          }
+
+          loadingText.textContent = 'Initializing AR system...';
+
+          // Show the scene
+          sceneEl.style.display = 'block';
+
+          // Wait for scene to load
+          await new Promise((resolve) => {
+            if (sceneEl.hasLoaded) {
+              resolve();
+            } else {
+              sceneEl.addEventListener('loaded', resolve, { once: true });
+            }
+          });
+
+          loadingText.textContent = 'Starting camera...';
 
           // Get the MindAR system
           const arSystem = sceneEl.systems['mindar-image'];
 
-          if (arSystem) {
-            // Start the AR system
-            await arSystem.start();
-            arStarted = true;
-            updateMessage('Point your camera at the target image');
-            console.log('AR started successfully');
-          } else {
+          if (!arSystem) {
             throw new Error('MindAR system not found');
           }
+
+          debug('Starting MindAR system...');
+
+          // Start the AR system
+          await arSystem.start();
+
+          arStarted = true;
+          loading.style.display = 'none';
+          startBtn.style.display = 'none';
+          updateMessage('Point your camera at the target image');
+
+          debug('AR started successfully');
+          console.log('AR started successfully');
+
         } catch (error) {
           console.error('Error starting AR:', error);
-          updateMessage('Failed to start camera. Please check permissions and refresh.');
+          debug('Error: ' + error.message);
+
+          loading.style.display = 'none';
+          startBtn.disabled = false;
+          startBtn.textContent = 'Start AR Experience';
+
+          updateMessage('Failed to start AR: ' + error.message);
+
+          // Show start button again
           startBtn.style.display = 'block';
         }
       }
 
       // Play video function
-      function playVideo() {
+      async function playVideo() {
         if (video && video.paused) {
-          video.play().then(() => {
+          try {
+            await video.play();
             console.log('Video started playing');
             updateMessage('Video playing! Tap to unmute');
-            hideMessageAfterDelay();
-          }).catch((error) => {
+            hideMessage();
+          } catch (error) {
             console.error('Error playing video:', error);
             updateMessage('Tap to play video');
-          });
+          }
         }
       }
 
@@ -228,33 +332,30 @@
         if (video) {
           video.muted = !video.muted;
           updateMessage(video.muted ? 'Video muted' : 'Video unmuted');
-          hideMessageAfterDelay(2000);
+          hideMessage(2000);
         }
       }
 
       // Event listeners
       startBtn.addEventListener('click', startAR);
 
-      // Scene loaded
+      // Scene events
       sceneEl.addEventListener('loaded', () => {
         console.log('Scene loaded');
-        loading.style.display = 'none';
-
-        // Show start button
-        startBtn.style.display = 'block';
-        updateMessage('Click "Start AR Experience" to begin');
+        debug('Scene loaded');
       });
 
-      // AR ready
+      // AR system events
       sceneEl.addEventListener('arReady', () => {
         console.log('AR ready');
+        debug('AR system ready');
         updateMessage('AR initialized. Point camera at target image.');
       });
 
-      // AR error
       sceneEl.addEventListener('arError', (event) => {
         console.error('AR Error:', event.detail);
-        updateMessage('AR Error: ' + event.detail.error);
+        debug('AR Error: ' + JSON.stringify(event.detail));
+        updateMessage('AR Error occurred. Please refresh and try again.');
       });
 
       // Target tracking events
@@ -263,6 +364,7 @@
       if (target) {
         target.addEventListener('targetFound', () => {
           console.log('Target found');
+          debug('Target detected!');
           targetVisible = true;
           updateMessage('Target detected! Loading video...');
 
@@ -274,6 +376,7 @@
 
         target.addEventListener('targetLost', () => {
           console.log('Target lost');
+          debug('Target lost');
           targetVisible = false;
           updateMessage('Target lost. Point camera at target image.');
           pauseVideo();
@@ -282,49 +385,40 @@
 
       // Video events
       video.addEventListener('loadeddata', () => {
-        console.log('Video loaded');
+        console.log('Video data loaded');
+        debug('Video ready');
       });
 
       video.addEventListener('play', () => {
-        console.log('Video play event');
+        console.log('Video playing');
       });
 
       video.addEventListener('pause', () => {
-        console.log('Video pause event');
+        console.log('Video paused');
       });
 
       video.addEventListener('error', (e) => {
         console.error('Video error:', e);
+        debug('Video error');
         updateMessage('Video loading error');
       });
 
       // Click/touch events for interaction
-      let clickCount = 0;
       document.addEventListener('click', (e) => {
-        if (e.target !== startBtn && arStarted) {
-          clickCount++;
-          if (targetVisible) {
-            if (clickCount === 1) {
-              // First click: try to play/unmute
-              if (video.paused) {
-                playVideo();
-              } else {
-                toggleMute();
-              }
-            }
-            // Reset click count after delay
-            setTimeout(() => {
-              clickCount = 0;
-            }, 300);
+        if (e.target !== startBtn && arStarted && targetVisible) {
+          if (video.paused) {
+            playVideo();
+          } else {
+            toggleMute();
           }
         }
       });
 
       // Handle page visibility changes
       document.addEventListener('visibilitychange', () => {
-        if (document.hidden) {
+        if (document.hidden && arStarted) {
           pauseVideo();
-        } else if (targetVisible && arStarted) {
+        } else if (!document.hidden && targetVisible && arStarted) {
           setTimeout(() => {
             playVideo();
           }, 500);
@@ -336,17 +430,21 @@
         if (arStarted) {
           pauseVideo();
           const arSystem = sceneEl.systems['mindar-image'];
-          if (arSystem) {
+          if (arSystem && arSystem.stop) {
             arSystem.stop();
           }
         }
       });
 
-      // Debug: Log MindAR system status
-      setTimeout(() => {
-        const arSystem = sceneEl.systems['mindar-image'];
-        console.log('MindAR system:', arSystem);
-      }, 2000);
+      // Check for required features
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        updateMessage('Camera not supported on this device/browser');
+        startBtn.disabled = true;
+        startBtn.textContent = 'Camera Not Supported';
+      }
+
+      // Initial debug info
+      debug('AR system ready to start');
     </script>
   </body>
 </html>
